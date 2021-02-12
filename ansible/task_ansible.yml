@@ -1,0 +1,60 @@
+---
+- name: Install Docker and configure SWAP on AWS instances
+  hosts: aws_ec2
+  become: yes
+
+  tasks:
+    - name: Add swap entry in fstab
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: \sswap\s
+        line: "/swapfile\tnone\tswap\tdefaults\t0\t0"
+
+    - name: Check if swap file exists
+      ansible.builtin.stat:
+        path: /swapfile
+        get_checksum: no
+      register: swap_file
+
+    - name: Allocate new file for swap
+      ansible.builtin.command: dd if=/dev/zero of=/swapfile bs=1M count=1024
+      when: not swap_file.stat.exists
+
+    - name: Format file as swap
+      ansible.builtin.command: mkswap /swapfile
+      when: not swap_file.stat.exists
+
+    - name: Check permissions on swap file
+      ansible.builtin.file:
+        path: /swapfile
+        mode: 0600
+
+    - name: Enable swap
+      ansible.builtin.command: swapon -a
+      changed_when: False
+
+    - name: Install docker and pip
+      ansible.builtin.package:
+        name: 
+        - docker
+        - python2-pip
+
+    - name: Install docker python package
+      ansible.builtin.pip:
+        name: docker
+
+    - name: Starting docker system service
+      ansible.builtin.service:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Create docker container from nginx image
+      community.general.docker_container:
+        name: httpserver
+        image: nginx
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - '80:80'
+        container_default_behavior: no_defaults
